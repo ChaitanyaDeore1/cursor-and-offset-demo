@@ -1,0 +1,176 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8" />
+  <title>Offset vs Cursor pagination</title>
+  <style>
+    body {
+      font-family: system-ui, sans-serif;
+      max-width: 760px;
+      margin: 40px auto;
+      padding: 0 16px;
+      color: #1f2937;
+    }
+    h1 { margin-bottom: 4px; }
+    .sub { margin-top: 0; color: #6b7280; }
+
+    .controls { display: flex; gap: 10px; margin: 20px 0 8px; }
+    button {
+      padding: 10px 16px;
+      border: none;
+      border-radius: 8px;
+      background: #2563eb;
+      color: white;
+      font-size: 15px;
+      cursor: pointer;
+    }
+    button.secondary { background: #e5e7eb; color: #374151; }
+
+    #status {
+      background: #f3f4f6;
+      border-radius: 8px;
+      padding: 10px 14px;
+      margin: 12px 0 20px;
+      min-height: 20px;
+    }
+
+    .columns { display: flex; gap: 20px; }
+    .col {
+      flex: 1;
+      border: 1px solid #e5e7eb;
+      border-radius: 12px;
+      padding: 14px 16px;
+    }
+    .col h2 { margin: 0; font-size: 18px; }
+    .hint { margin: 2px 0 12px; color: #6b7280; font-size: 14px; }
+
+    ul { list-style: none; padding: 0; margin: 0; }
+    li {
+      padding: 8px 10px;
+      border-radius: 6px;
+      margin-bottom: 4px;
+      background: #f9fafb;
+    }
+    li.divider {
+      background: none;
+      color: #6b7280;
+      font-size: 13px;
+      padding: 10px 0 2px;
+    }
+    li.repeat { background: #fef3c7; }
+    li.repeat span {
+      display: block;
+      font-size: 12px;
+      color: #92400e;
+    }
+  </style>
+</head>
+<body>
+  <h1>Offset vs Cursor pagination</h1>
+  <p class="sub">A feed that shows 5 posts per page, newest first.</p>
+
+  <div class="controls">
+    <button id="loadBtn">Load next page</button>
+    <button id="addBtn">Someone adds a new post</button>
+    <button id="resetBtn" class="secondary">Reset</button>
+  </div>
+
+  <div id="status"></div>
+
+  <div class="columns">
+    <div class="col">
+      <h2>Offset</h2>
+      <p class="hint">"Skip N posts, give me 5"</p>
+      <ul id="offsetList"></ul>
+    </div>
+    <div class="col">
+      <h2>Cursor</h2>
+      <p class="hint">"Give me 5 posts older than the last one I saw"</p>
+      <ul id="cursorList"></ul>
+    </div>
+  </div>
+
+  <script>
+    let page = 0;       // for offset: which page we are on
+    let cursor = null;  // for cursor: id of the last post we saw
+    let offsetSeen = new Set();
+    let cursorSeen = new Set();
+
+    const statusBox = document.getElementById("status");
+
+    function setStatus(text) {
+      statusBox.textContent = text;
+    }
+
+    function render(listId, posts, seen, pageNo) {
+      const list = document.getElementById(listId);
+
+      const divider = document.createElement("li");
+      divider.className = "divider";
+      divider.textContent = "Page " + pageNo;
+      list.appendChild(divider);
+
+      posts.forEach((post) => {
+        const li = document.createElement("li");
+        li.textContent = post.text;
+
+        // If we already showed this post on an earlier page, mark it
+        if (seen.has(post.id)) {
+          li.classList.add("repeat");
+          const note = document.createElement("span");
+          note.textContent = "already shown on an earlier page";
+          li.appendChild(note);
+        }
+
+        seen.add(post.id);
+        list.appendChild(li);
+      });
+    }
+
+    async function loadNext() {
+      page++;
+
+      // Offset column
+      const offsetPosts = await fetch("/offset?page=" + page).then((r) => r.json());
+      render("offsetList", offsetPosts, offsetSeen, page);
+
+      // Cursor column
+      const url = cursor === null ? "/cursor" : "/cursor?after=" + cursor;
+      const cursorPosts = await fetch(url).then((r) => r.json());
+      render("cursorList", cursorPosts, cursorSeen, page);
+
+      if (cursorPosts.length > 0) {
+        cursor = cursorPosts[cursorPosts.length - 1].id;
+      }
+
+      if (page === 1) {
+        setStatus("Step 2: Click 'Someone adds a new post' while the user is still scrolling.");
+      } else {
+        setStatus("Both columns loaded page " + page + ". Compare them.");
+      }
+    }
+
+    async function addPost() {
+      const post = await fetch("/add").then((r) => r.json());
+      setStatus(post.text + " was just added at the top. Step 3: Click 'Load next page'.");
+    }
+
+    async function reset() {
+      await fetch("/reset");
+      page = 0;
+      cursor = null;
+      offsetSeen = new Set();
+      cursorSeen = new Set();
+      document.getElementById("offsetList").innerHTML = "";
+      document.getElementById("cursorList").innerHTML = "";
+      setStatus("Step 1: Click 'Load next page' to see page 1.");
+    }
+
+    document.getElementById("loadBtn").onclick = loadNext;
+    document.getElementById("addBtn").onclick = addPost;
+    document.getElementById("resetBtn").onclick = reset;
+
+    reset();
+  </script>
+</body>
+</html>
